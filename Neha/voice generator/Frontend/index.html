@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Voice Translator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0;
+           margin: 0; min-height: 100vh; display: flex; justify-content: center; padding: 32px 16px; }
+    .card { background: #1e293b; border-radius: 16px; padding: 28px; width: 100%; max-width: 560px; }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    label { display: block; margin: 16px 0 6px; font-size: .9rem; color: #94a3b8; }
+    select, input[type=file] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155;
+                               background: #0f172a; color: inherit; }
+    button { padding: 12px 18px; border: 0; border-radius: 8px; font-size: 1rem; cursor: pointer;
+             background: #6366f1; color: white; margin-top: 16px; }
+    button.recording { background: #ef4444; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .box { background: #0f172a; border-radius: 8px; padding: 12px; margin-top: 8px; min-height: 44px; }
+    audio { width: 100%; margin-top: 12px; }
+    .status { margin-top: 14px; color: #fbbf24; font-size: .9rem; }
+    .check { margin-top: 16px; display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎙️ Voice Translator</h1>
+
+    <label>Translate into</label>
+    <select id="lang"></select>
+
+    <div class="check">
+      <input type="checkbox" id="clone" />
+      <label for="clone" style="margin:0">Clone my voice (needs the voice-cloning setup)</label>
+    </div>
+    <label>Voice sample (optional, 6–15 s WAV)</label>
+    <input type="file" id="sample" accept="audio/*" />
+
+    <div class="row">
+      <button id="recBtn">🎤 Start recording</button>
+      <button id="uploadBtn" style="background:#334155">Or upload audio</button>
+      <input type="file" id="fileInput" accept="audio/*" hidden />
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <label>What you said</label>
+    <div class="box" id="transcript"></div>
+    <label>Translation</label>
+    <div class="box" id="translation"></div>
+    <audio id="player" controls hidden></audio>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let recorder, chunks = [];
+
+    async function loadLanguages() {
+      const res = await fetch("/api/languages");
+      const langs = await res.json();
+      for (const [code, name] of Object.entries(langs)) {
+        $("lang").add(new Option(name, code));
+      }
+      $("lang").value = "es";
+    }
+
+    async function toggleRecording() {
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorder = new MediaRecorder(stream);
+      chunks = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        $("recBtn").textContent = "🎤 Start recording";
+        $("recBtn").classList.remove("recording");
+        send(new File([new Blob(chunks, { type: recorder.mimeType })], "recording.webm"));
+      };
+      recorder.start();
+      $("recBtn").textContent = "⏹ Stop";
+      $("recBtn").classList.add("recording");
+    }
+
+    async function send(file) {
+      const form = new FormData();
+      form.append("audio", file);
+      form.append("target_lang", $("lang").value);
+      form.append("clone_voice", $("clone").checked);
+      if ($("sample").files[0]) form.append("voice_sample", $("sample").files[0]);
+
+      $("status").textContent = "Processing... (the first run is slow while models load)";
+      $("recBtn").disabled = true;
+      try {
+        const res = await fetch("/api/voice-translate", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Request failed");
+
+        $("transcript").textContent = data.transcript;
+        $("translation").textContent = data.translation;
+        $("player").src = data.audio_url;
+        $("player").hidden = false;
+        $("player").play();
+        $("status").textContent = data.warning || "";
+      } catch (err) {
+        $("status").textContent = "Error: " + err.message;
+      } finally {
+        $("recBtn").disabled = false;
+      }
+    }
+
+    $("recBtn").onclick = toggleRecording;
+    $("uploadBtn").onclick = () => $("fileInput").click();
+    $("fileInput").onchange = (e) => e.target.files[0] && send(e.target.files[0]);
+    loadLanguages();
+  </script>
+</body>
+</html>

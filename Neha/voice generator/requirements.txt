@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+faster-whisper
+deep-translator
+gTTS
+anthropic
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+faster-whisper
+deep-translator
+argostranslate
+gTTS
+anthropic
